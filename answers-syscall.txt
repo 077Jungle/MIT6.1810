@@ -1,0 +1,6 @@
+usertrap
+0x7 SYS_exec, which represents the syscall function name
+user mode
+(0x80001ff4)lw a3, 0(zero) # 0x0    a3
+Address 0 isn't mapped in the kernel address space. The value of scause(0xd) means Load page fault. 
+initcode    pid=1
