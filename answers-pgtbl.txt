@@ -1,0 +1,8 @@
+fork(), proc->parent could be recorded in USYSCALL pgtbl. 
+
+page0: code and data
+page1: guard page (without PTE_U)
+page2: stack page
+page509: USYSCALL mapped page
+page510: trapframe mapped page
+page511: trampoline mapped page
