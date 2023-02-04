@@ -1,0 +1,22 @@
+In g(x), x is contained in register a0.
+In f(x), x is contained in register a0. 
+In printf(), 13 is contained in register a2, f(8)+1 is contained in a1. 
+
+call to function f: 
+  24:	4635                	li	a2,13
+call to function g: 
+  26:	45b1                	li	a1,12
+
+prtinf() is located at 0x64a. 
+
+$a0 = 2032;
+x *$a0 => "%d %d\n"
+
+// the RISC-V is little-endian
+He110 World
+// if big-endian
+unsigned int i = 0x726c6400;
+no need
+
+register a2 is arbitrary.
+
