@@ -1,0 +1,5 @@
+1.  thread1 and thread2 read same p;
+    thread1                 thread2
+    e->next = n;            e->next = n;
+    *p = e;
+                            *p = e;
