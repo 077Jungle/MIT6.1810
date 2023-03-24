@@ -349,6 +349,31 @@ sys_open(void)
     return -1;
   }
 
+  if(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)){
+    int i = 0;
+    while(i < 10){
+      readi(ip, 0, (uint64)path, 0, sizeof(path));
+      iunlockput(ip);
+      if((ip = namei(path)) == 0){
+        myproc()->ofile[fd] = 0;
+        fileclose(f);
+        end_op();
+        return -1;
+      }
+      ilock(ip);
+      if(ip->type != T_SYMLINK)
+        break;
+      i++;
+    }
+    if(i == 10) {
+      myproc()->ofile[fd] = 0;
+      fileclose(f);
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+  }
+
   if(ip->type == T_DEVICE){
     f->type = FD_DEVICE;
     f->major = ip->major;
@@ -501,5 +526,55 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+uint64
+sys_symlink(void)
+{
+  char name[DIRSIZ], target[MAXPATH], path[MAXPATH];
+  struct inode *dp, *ip;
+
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+
+  begin_op();
+  // get dir inode
+  if((dp = nameiparent(path, name)) == 0){
+    end_op();
+    return -1;
+  }
+
+  // alloc a inode for T_SYMLINK
+  if((ip = ialloc(dp->dev, T_SYMLINK)) == 0){
+    iunlockput(dp);
+    end_op();
+    return -1;
+  }
+  // write target info
+  ilock(ip);
+  if(writei(ip, 0, (uint64)target, 0, sizeof(target)) != sizeof(target)){
+    iunlockput(ip);
+    iput(dp);
+    end_op();
+    return -1;
+  }
+
+  // update dir inode
+  ilock(dp);
+  if(dirlink(dp, name, ip->inum) < 0){
+    iunlockput(ip);
+    iunlockput(dp);
+    end_op();
+    return -1;
+  }
+  iunlockput(dp);
+
+  // update T_SYMLINK inode
+  ip->nlink = 1;
+  iupdate(ip);
+  iunlockput(ip);
+  end_op();
+
   return 0;
 }
