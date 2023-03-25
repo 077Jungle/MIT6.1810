@@ -5,6 +5,10 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fcntl.h"
+#include "fs.h"
+#include "sleeplock.h"
+#include "file.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -15,6 +19,7 @@ extern char trampoline[], uservec[], userret[];
 void kernelvec();
 
 extern int devintr();
+extern void mmap_hander();
 
 void
 trapinit(void)
@@ -65,6 +70,9 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if (r_scause() == 13){
+    // uint64 va = r_stval();
+    mmap_hander();
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

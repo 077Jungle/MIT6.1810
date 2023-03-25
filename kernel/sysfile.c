@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "memlayout.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -502,4 +503,138 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+uint64
+sys_mmap(void)
+{
+  uint64 addr;
+  int length, prot, flag, fd, offset;
+
+  // argaddr(0, &addr);
+  argint(1, &length);
+  argint(2, &prot);
+  argint(3, &flag);  
+  argint(4, &fd);
+  argint(5, &offset);
+
+  if(length % PGSIZE)
+    return -1;
+
+  struct proc *p = myproc();
+
+  if(p->ofile[fd]->writable == 0 && prot & PROT_WRITE && flag & MAP_SHARED)
+    return -1;
+
+  int i;
+  addr = TRAPFRAME;
+  for(i = 0; i < 16; i++)
+    if(p->vma[i].addr != 0 && p->vma[i].addr < addr)
+      addr = p->vma[i].addr;
+
+  for(i = 0; i < 16; i++) {
+    if(p->vma[i].addr == 0) {
+      p->vma[i].addr = addr - length;
+      p->vma[i].length = length;
+      p->vma[i].prot = prot;
+      p->vma[i].flag = flag;
+      p->vma[i].file = p->ofile[fd];
+      p->vma[i].offset = offset;
+      break;
+    }
+  }
+
+  if(i == 16)
+    return -1;
+
+  filedup(p->ofile[fd]);
+  return p->vma[i].addr;
+}
+
+uint64
+sys_munmap(void)
+{
+  uint64 addr;
+  int length;
+
+  argaddr(0, &addr);
+  argint(1, &length);
+
+  if(length % PGSIZE)
+    return -1;
+
+  struct proc *p = myproc();
+
+  int i;
+  for(i = 0; i < 16; i++) {
+    if(p->vma[i].addr && p->vma[i].addr <= addr && (addr + length) <= (p->vma[i].addr + p->vma[i].length)) {
+      // check & writeback
+      if(p->vma[i].prot & PROT_WRITE && p->vma[i].flag & MAP_SHARED) {
+        filewrite(p->vma[i].file, addr, length);
+      }
+      // unmap and free (uvmunmap function)
+      uint64 a;
+      pte_t *pte;
+      for(a = addr; a < addr + length; a += PGSIZE){
+        if((pte = walk(p->pagetable, a, 0)) == 0)
+          panic("uvmunmap: walk");
+        if((*pte & PTE_V) != 0) {
+          uint64 pa = PTE2PA(*pte);
+          kfree((void*)pa);
+        }
+        *pte = 0;
+      }
+      // modify vma
+      if(p->vma[i].addr == addr)
+        p->vma[i].addr += length;
+      p->vma[i].length -= length;
+      // full unmap?
+      if(p->vma[i].length == 0) {
+        fileclose(p->vma[i].file);
+        p->vma[i].addr = 0;
+      }
+      break;
+    }
+  }
+
+  if(i == 16)
+    return -1;
+  
+  return 0;
+}
+
+void
+mmap_hander(void)
+{
+  uint64 va = r_stval();
+  va = PGROUNDDOWN(va);
+  struct proc *p = myproc();
+  int i;
+  for(i = 0; i < 16; i++){
+    if(p->vma[i].addr && p->vma[i].addr <= va && va < (p->vma[i].addr + p->vma[i].length)){
+      char *mem = kalloc();
+      if(mem == 0){
+        p->killed = 1;
+        return;
+      }
+      memset(mem, 0, PGSIZE);
+      int perm = PTE_U;
+      if(p->vma[i].prot & PROT_READ)
+        perm |= PTE_R;
+      if(p->vma[i].prot & PROT_WRITE)
+        perm |= PTE_W;
+      if(mappages(p->pagetable, va, PGSIZE, (uint64)mem, perm) != 0){
+        kfree(mem);
+        p->killed = 1;
+        return;
+      }
+      ilock(p->vma[i].file->ip);
+      readi(p->vma[i].file->ip, 1, va, va - p->vma[i].addr, PGSIZE);
+      iunlock(p->vma[i].file->ip);
+      break;
+    }
+  }
+
+  if(i == 16)
+    p->killed = 1;
 }
